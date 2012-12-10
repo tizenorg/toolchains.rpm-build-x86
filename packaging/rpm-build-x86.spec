@@ -1,33 +1,58 @@
 %define __strip /bin/true
-%define _build_name_fmt    %%{ARCH}/%%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.dontuse.rpm
-# meta spec file for cross-chroot setup 
+%define _build_name_fmt    %%{ARCH}/%%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.vanish.rpm
+# meta spec file for cross-chroot setup
 #
-# Copyright (c) 2010  Jan-Simon Möller (jsmoeller@linuxfoundation.org)
-# License: GPLv2
-
-## README
-##
-## In this file:
-## 1) define name of original package (see oldname)
-## 
-## File binaries_to_prepare:
-## 2) fill in the binaries which need to be available to the foreign chroot
-##    e.g. /bin/bash   -  this will make a i586 bash available
-##
+# Copyright (c) 2009-2011 Martin Mohring   (martin.mohring@opensuse.org)
+# Copyright (c) 2011      5eEcoSystems     (info@5eecosystems.com)
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of the copyright owners, unless otherwise agreed
+# upon. The cross build accelerators as is, and modifications
+# and additions to the it, are licensed under the GPLv2.
+# In addition, the cross build accelerators are licensed together with
+# a package where they will be contained in
+# under the license of the prestine package (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
 
 #\/\/\/\/\/\/\/\/\/\/
 ### only changes here
+
 #
 # The original package name
 %define oldname rpm-build
+
 #
 # The architectures this meta package is built on
 %define myexclusive i586
+
 #
+# The required package for building this package
+# This can be distribution dependent. Good start is:
+# e.g. rpm grep tar sed patchelf
+#
+BuildRequires: rpm grep tar sed patchelf
+
+#
+# Additional required packages needed in addition to those of original package
+# e.g. (usually empty) for an accelerator to be 100% compatible
+#
+Requires: rpm
+
+# For a real accelerator, also the old packge is required for compatibility
+# pls change this only if you know what you do
+Requires:      %oldname
+
+#
+# Release under which to put the accelerator
+# e.g. 1 or higher
+#
+Release:       8
+
 ### no changes needed below this line
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-
 
 ### no changes needed
 #
@@ -35,13 +60,13 @@
 %define newname %{oldname}-x86
 #
 # The version of the original package is read from its rpm db info
-%{expand:%%define newversion %(rpm -q --qf '[%{version}]' %oldname)}
+%{expand:%%define newversion %(rpm -q --qf '[%{version}]' %{oldname})}
 #
 # The license of the original package is read from its rpm db info
-%{expand:%%define newlicense %(rpm -q --qf '[%{license}]' %oldname)}
+%{expand:%%define newlicense %(rpm -q --qf '[%{license}]' %{oldname})}
 #
 # The group information of the original package
-%{expand:%%define newgroup %(rpm -q --qf '[%{group}]' %oldname)}
+%{expand:%%define newgroup %(rpm -q --qf '[%{group}]' %{oldname})}
 #
 # The summary of the original package
 %{expand:%%define newsummary %(rpm -q --qf '[%{summary} - special version ]' %oldname)}
@@ -63,17 +88,14 @@
 
 Name:          %newname
 Version:       %newversion
-Release:       9
 AutoReqProv:   0
 Provides:      %newname
-BuildRequires: rpm grep tar patchelf sed -rpmlint-Moblin -rpmlint-mini -post-build-checks
 BuildRequires: %oldname
-Requires:      %oldname
 # no auto requirements - they're generated
 License:       %newlicense
 Group:         %newgroup
 ExclusiveArch: %myexclusive
-Summary:       Don't use! %newsummary
+Summary:       Dont use %newsummary !
 BuildRoot:     %{_tmppath}/%{name}-%{version}-build
 %if %binaries_to_prepare
 Source10:      binaries_to_prepare
@@ -165,16 +187,18 @@ for binary in `cat %{_sourcedir}/binaries_to_prepare` ; do
 %else
   debug="--debug"
 %endif
-  ldd $binary  | grep -v "ld-linux" | grep -v "linux-gate" |  sed -e "s#=.*##g" -e "s#^\t*##g"  > $tmp
-  deps=$(for i in `cat $tmp` ; do rpm -q --whatprovides "$i" | grep -v "no package"; done)
-  cleandeps=$(echo "$cleandeps" "$deps" | sort | uniq | sed -e "s/-[0-9].*//g")
-  patchelf $debug --set-rpath %newrpath %buildroot/$binary
-  patchelf $debug --set-interpreter %newinterpreter %buildroot/$binary
-  patchelf $debug --set-rpath %newrpath %buildroot/$binary
-  patchelf $debug --set-interpreter %newinterpreter %buildroot/$binary
-  if test -n "$debug"; then
-    patchelf --print-rpath %buildroot/$binary
-    patchelf --print-interpreter %buildroot/$binary
+  if file $binary | grep -q dynamic; then
+    ldd $binary  | grep -v "ld-linux" | grep -v "linux-gate" |  sed -e "s#=.*##g" -e "s#^\t*##g"  > $tmp
+    deps=$(for i in `cat $tmp` ; do rpm -q --whatprovides "$i" | grep -v "no package"; done)
+    cleandeps=$(echo "$cleandeps" "$deps" | sort | uniq | sed -e "s/-[0-9].*//g")
+    patchelf $debug --set-rpath %newrpath %buildroot/$binary
+    patchelf $debug --set-interpreter %newinterpreter %buildroot/$binary
+    patchelf $debug --set-rpath %newrpath %buildroot/$binary
+    patchelf $debug --set-interpreter %newinterpreter %buildroot/$binary
+    if test -n "$debug"; then
+      patchelf --print-rpath %buildroot/$binary
+      patchelf --print-interpreter %buildroot/$binary
+    fi
   fi
   echo "$binary" >> %buildroot/%{_prefix}/share/applybinary/%name
   echo ""
@@ -239,15 +263,15 @@ shellquote "  targettype arm requires \"tizen-accelerator\"" >> /tmp/baselibs_ne
 %if %binaries_to_prepare
 # Todo: error handling if .orig-arm is present
 for binary in `cat %{_sourcedir}/binaries_to_prepare` ; do
-   shellquote "  targettype arm post \"  if test -e ${binary}.orig-arm; then \" " >> /tmp/baselibs_new.conf
-   shellquote "  targettype arm post \"    file /emul/ia32-linux/${binary}; echo \"${binary}.orig-arm already present - skipping.\" \" " >> /tmp/baselibs_new.conf
+   shellquote "  targettype arm post \"  if test -e ${binary}.orig-arm -a -h ${binary}; then \" " >> /tmp/baselibs_new.conf
+   shellquote "  targettype arm post \"    echo \"${binary}.orig-arm already present - skipping.\" \" " >> /tmp/baselibs_new.conf
    shellquote "  targettype arm post \"  else \" " >> /tmp/baselibs_new.conf
-   shellquote "  targettype arm post \"    mv ${binary} ${binary}.orig-arm ; cp <prefix>${binary} ${binary} ; echo ${binary} \"" >> /tmp/baselibs_new.conf
+   shellquote "  targettype arm post \"    mv ${binary} ${binary}.orig-arm ; cp <prefix>${binary} ${binary} \"" >> /tmp/baselibs_new.conf
    shellquote "  targettype arm post \"  fi \" " >> /tmp/baselibs_new.conf
 done
 
 #   shellquote "  targettype arm post \"  set -x ; for dbi in Basenames Conflictname Dirnames Group Installtid Name Packages Providename Provideversion Requirename Requireversion Triggername Filedigests Pubkeys Sha1header Sigmd5 Obsoletename __db.001 __db.002 __db.003 __db.004 __db.005 __db.006 __db.007  __db.008 __db.009 ; do rm /var/lib/rpm/\$dbi ; touch /var/lib/rpm/\$dbi ; done ; set +x \" " >> /tmp/baselibs_new.conf
-#   shellquote "  targettype arm post \"  set -x; rpm --initdb; rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-tizen; set +x \" " >> /tmp/baselibs_new.conf
+#   shellquote "  targettype arm post \"  set -x; rpm --initdb; rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-meego; set +x \" " >> /tmp/baselibs_new.conf
 #   shellquote "  targettype arm post \"  set -x; ls /var/lib/rpm; set +x \" " >> /tmp/baselibs_new.conf
 
 #   shellquote "  targettype arm post \"# XXX this is klunky and ugly, rpm itself should handle this\" " >> /tmp/baselibs_new.conf
@@ -257,7 +281,6 @@ done
 #   shellquote "  targettype arm post \"        file /bin/rpm ; rm -f /var/lib/rpm/__db.* && rpm --rebuilddb \" " >> /tmp/baselibs_new.conf
 #   shellquote "  targettype arm post \"    fi\" " >> /tmp/baselibs_new.conf
 #   shellquote "  targettype arm post \"fi\" " >> /tmp/baselibs_new.conf
-
 
 shellquote " " >> /tmp/baselibs_new.conf
 for binary in `cat %{_sourcedir}/binaries_to_prepare` ; do
